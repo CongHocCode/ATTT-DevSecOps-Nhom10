@@ -1,2 +1,7 @@
-# ATTT-DevSecOps-Nhom10
-Đồ án An toàn thông tin - Đề tài 10: Tích hợp kiểm soát an toàn vào vòng đời phát triển ứng dụng Web (DevSecOps) - UTH 2026
+# ĐỒ ÁN AN TOÀN THÔNG TIN - HK1 (2026 - 2027)
+## ĐỀ TÀI 10: TÍCH HỢP KIỂM SOÁT AN TOÀN VÀO VÒNG ĐỜI PHÁT TRIỂN ỨNG DỤNG WEB (DEVSECOPS)
+
+* **Nhóm thực hiện:** Nhóm 10
+
+---
+*Kho lưu trữ mã nguồn và dây chuyền kiểm thử bảo mật tự động CI/CD.*
