@@ -3,8 +3,8 @@ const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// SEC-01: Secret Leak (Gitleaks) - Lộ API Key cố định
-const GOOGLE_API_KEY = "AIzaSyD-FAKE-KEY-999999999999999999";
+// SEC-01: Secret Leak (Gitleaks) - Đã cập nhật chuỗi chuẩn 39 ký tự để Gitleaks quét dính
+const GOOGLE_API_KEY = "AIzaSyBvX9Kq3L8mN2P0wR5tY1uZ4vW7xY8z9A0";
 
 const db = new sqlite3.Database(':memory:');
 db.serialize(() => {
