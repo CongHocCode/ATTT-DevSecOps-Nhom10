@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+node_modules/
+.env
+coverage/
+=======
 # Logs
 logs
 *.log
@@ -147,3 +152,4 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+>>>>>>> origin/main
