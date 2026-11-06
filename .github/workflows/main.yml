@@ -1,39 +1,196 @@
-name: DevSecOps Pipeline
+name: DevSecOps Automated CI/CD Pipeline - UTH Group 10
 
+# ==============================================================================
+# SỰ KIỆN KÍCH HOẠT PIPELINE (TRIGGERS)
+# Chạy tự động mỗi khi có Push lên main, nhánh tính năng, gắn tag, hoặc tạo PR
+# ==============================================================================
 on:
   push:
     branches: [ "main", "feat/*" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
+  # ============================================================================
+  # CHẶNG 1: KIỂM THỬ ĐƠN VỊ (UNIT TEST - PHẦN NHẬT)
+  # Mục đích: Đảm bảo chức năng logic cơ bản của Web App không bị hỏng
+  # ============================================================================
   unit-test:
+    name: 1. Unit Test (Jest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - run: npm install
-      - run: npm test
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
+      - name: Setup Node.js Environment (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # Dùng npm ci thay vì npm install để đảm bảo đồng bộ 100% với package-lock.json
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Execute Unit Tests
+        run: npm test
+
+  # ============================================================================
+  # CHẶNG 2: SECRET SCANNING (PHẦN NHẬT - GITLEAKS)
+  # Mục đích: Bắt lỗi SEC-01 (Lộ Google API Key cứng trong mã nguồn)
+  # ============================================================================
   secret-scan:
+    name: 2. Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code with Full History
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Quét toàn bộ lịch sử commit để không bỏ sót secret
 
-  sast-semgrep:
+      - name: Run Gitleaks Scanner
+        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để thu thập log
+        continue-on-error: true
+        run: |
+          docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect \
+            --source="/path" \
+            --report-path="/path/gitleaks-report.json" \
+            --report-format="json" \
+            --verbose
+
+      # Xuất file báo cáo gitleaks-report.json lên tab Artifacts
+      - name: Upload Gitleaks Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+
+  # ============================================================================
+  # CHẶNG 3: SAST SCANNING (PHẦN NHẬT - SEMGREP)
+  # Mục đích: Bắt lỗi SEC-02 (SQL Injection CWE-89) và SEC-03 (Reflected XSS CWE-79)
+  # ============================================================================
+  sast:
+    name: 3. SAST Scan (Semgrep)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep OSS
+        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để lấy log JSON
+        continue-on-error: true
+        run: |
+          docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan \
+            --config=p/default \
+            --config=p/owasp-top-ten \
+            --config=p/expressjs \
+            --json \
+            --output=/src/semgrep-report.json
+
+      # Xuất file báo cáo semgrep-report.json lên tab Artifacts
+      - name: Upload Semgrep Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.10'
-      - run: |
-          python3 -m pip install semgrep
-          semgrep --config p/javascript --config p/owasp-top-ten --severity ERROR --error
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: ignore
+
+  # ============================================================================
+  # CHẶNG 4: SCA SCANNING & SBOM (PHẦN THỊNH - TRIVY)
+  # Mục đích: Bắt lỗi SEC-04 (jsonwebtoken CVE mức HIGH) và tạo SBOM CycloneDX
+  # ============================================================================
+  sca-sbom:
+    name: 4. SCA Scan & SBOM (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # 4.1. Xuất bản kê khai thành phần phần mềm chuẩn CycloneDX JSON
+      - name: Generate CycloneDX SBOM
+        run: |
+          docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
+            --format cyclonedx \
+            --output /src/sbom.json /src
+
+      # 4.2. Quét lỗ hổng phụ thuộc trong package-lock.json
+      - name: Run Trivy Dependency Vulnerability Scan
+        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để lấy log JSON
+        continue-on-error: true
+        run: |
+          docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /src/trivy-report.json /src
+
+      # Xuất cả file SBOM và báo cáo lỗ hổng lên tab Artifacts
+      - name: Upload SCA & SBOM Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-and-sbom
+          path: |
+            sbom.json
+            trivy-report.json
+          if-no-files-found: ignore
+
+  # ============================================================================
+  # CHẶNG 5: DAST SCANNING (PHẦN QUYẾT - OWASP ZAP)
+  # Mục đích: Bắt lỗi SEC-05 (Thiếu Security Headers: CSP và nosniff)
+  # ============================================================================
+  dast:
+    name: 5. DAST Scan (OWASP ZAP)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # 5.1. Build và chạy Web App ngầm trên runner để ZAP có mục tiêu quét
+      - name: Build and Run Web Container
+        run: |
+          docker build -t target-app .
+          docker run -d --name test-web -p 3000:3000 target-app
+          sleep 5
+          # Kiểm tra chắc chắn web đã khởi động thành công trước khi quét
+          curl -I http://localhost:3000 || exit 1
+
+      # 5.2. Chạy OWASP ZAP Baseline Scan quét vào cổng 3000
+      - name: Run OWASP ZAP Baseline Scan
+        continue-on-error: true
+        run: |
+          mkdir -p zap-work
+          chmod 777 zap-work
+          docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
+            zaproxy/zap-stable zap-baseline.py \
+            -t http://localhost:3000 \
+            -J zap-report.json \
+            -r zap-report.html
+
+      # Xuất báo cáo HTML và JSON của ZAP lên tab Artifacts
+      - name: Upload DAST Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-work/
+          if-no-files-found: ignore
+
+  # ============================================================================
+  # CHẶNG 6: TỔNG KẾT & CHỐT CHẶN PHÁT HÀNH (DEPLOY GATE)
+  # Điều kiện: Chờ cả 5 job trên hoàn thành để xác nhận trạng thái Baseline
+  # ============================================================================
+  deploy:
+    name: 6. Quality Gate & Push to Registry
+    needs: [unit-test, secret-scan, sast, sca-sbom, dast]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize Baseline Execution
+        run: |
+          echo "======================================================================"
+          echo "🏁 GIAI ĐOẠN 2: CHU TRÌNH ĐO LƯỜNG BASELINE ĐÃ HOÀN TẤT THÀNH CÔNG!"
+          echo "📊 Toàn bộ 4 file báo cáo JSON/HTML đã sẵn sàng trong mục Artifacts."
+          echo "======================================================================"
