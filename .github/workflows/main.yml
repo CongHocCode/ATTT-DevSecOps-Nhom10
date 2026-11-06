@@ -37,3 +37,51 @@ jobs:
       - run: |
           python3 -m pip install semgrep
           semgrep --config p/javascript --config p/owasp-top-ten --severity ERROR --error
+  
+  // Quét lỗ hổng bảo mật trong mã nguồn
+  sca-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Quét lỗ hổng thư viện (SCA)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-fs-report.json'
+          exit-code: '0' # Giai đoạn 2: Cho qua để lấy Baseline
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build Docker image
+        run: docker build -t app-devsecops:${{ github.sha }} .
+
+      - name: Quét lỗ hổng Docker Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'app-devsecops:${{ github.sha }}'
+          format: 'json'
+          output: 'trivy-image-report.json'
+          exit-code: '0' # Giai đoạn 2: Cho qua để lấy Baseline
+          severity: 'CRITICAL,HIGH'
+
+      - name: Kết xuất SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'cyclonedx'
+          output: 'cyclonedx-sbom.json'
+
+      - name: Lưu trữ Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-sbom-reports
+          path: |
+            trivy-fs-report.json
+            trivy-image-report.json
+            cyclonedx-sbom.json

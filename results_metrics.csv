@@ -1,0 +1,7 @@
+Run_ID,Repeat_No,Commit_Hash,Test_Scenario,Scanner_Name,Execution_Time_Sec,Pipeline_Total_Sec,Raw_Findings,True_Positives,False_Positives,Missed_Findings,Max_Severity,Quality_Gate_Status,Notes
+1,1,v0-buggy,Baseline,Trivy (FS),15,120,0,0,0,0,UNKNOWN,PASSED,Quét tệp phụ thuộc package.json
+1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
+1,1,v0-buggy,Baseline,Trivy (FS),15,120,0,0,0,0,UNKNOWN,PASSED,Quét tệp phụ thuộc package.json
+1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
+1,1,v0-buggy,Baseline,Trivy (FS),15,120,3,3,0,0,HIGH,FAILED,Quét tệp phụ thuộc package.json
+1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
