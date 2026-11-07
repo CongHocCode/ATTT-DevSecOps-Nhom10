@@ -28,7 +28,7 @@ coverage/
 # ==========================================
 sbom.json
 *.sbom.json
-trivy-report.json
+trivy-*.json
 semgrep-report.json
 gitleaks-report.json
 zap-work/
