@@ -110,32 +110,70 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # 4.1. Xuất bản kê khai thành phần phần mềm chuẩn CycloneDX JSON
+      - name: Build Docker Image
+        run: docker build -t app-devsecops:latest .
+
       - name: Generate CycloneDX SBOM
         run: |
           docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
             --format cyclonedx \
-            --output /src/sbom.json /src
+            --output /src/cyclonedx-sbom.json /src
 
-      # 4.2. Quét lỗ hổng phụ thuộc trong package-lock.json
-      - name: Run Trivy Dependency Vulnerability Scan
-        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để lấy log JSON
-        continue-on-error: true
+      - name: Validate CycloneDX SBOM and checksum
+        run: |
+          docker run --rm -v "$(pwd):/src" cyclonedx/cyclonedx-cli:latest \
+            cyclonedx validate --input-file /src/cyclonedx-sbom.json \
+            --input-format json --input-version v1_7 --fail-on-errors
+          sha256sum cyclonedx-sbom.json > cyclonedx-sbom.json.sha256
+          sha256sum --check cyclonedx-sbom.json.sha256
+
+      - name: Trivy FS Scan
         run: |
           docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
+            --scanners vuln \
             --severity HIGH,CRITICAL \
+            --exit-code 0 \
             --format json \
-            --output /src/trivy-report.json /src
+            --output /src/trivy-fs-report.json /src
 
-      # Xuất cả file SBOM và báo cáo lỗ hổng lên tab Artifacts
+      - name: Verify SEC-04 Baseline Finding
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("trivy-fs-report.json").read_text(encoding="utf-8"))
+          matches = [
+              vuln
+              for result in report.get("Results", [])
+              for vuln in (result.get("Vulnerabilities") or [])
+              if vuln.get("VulnerabilityID") == "CVE-2022-23539"
+          ]
+          if not any(vuln.get("Severity", "").upper() == "HIGH" for vuln in matches):
+              raise SystemExit("SEC-04 baseline failed: CVE-2022-23539 HIGH was not found")
+          print("SEC-04 baseline confirmed: CVE-2022-23539 HIGH")
+          PY
+
+      - name: Trivy Image Scan
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/src aquasec/trivy:latest image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            --format json \
+            --output /src/trivy-image-report.json app-devsecops:latest
+
       - name: Upload SCA & SBOM Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sca-and-sbom
           path: |
-            sbom.json
-            trivy-report.json
+            cyclonedx-sbom.json
+            cyclonedx-sbom.json.sha256
+            trivy-fs-report.json
+            trivy-image-report.json
           if-no-files-found: ignore
 
   # ============================================================================
