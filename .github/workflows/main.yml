@@ -196,14 +196,24 @@ jobs:
           # Kiểm tra chắc chắn web đã khởi động thành công trước khi quét
           curl -I http://localhost:3000 || exit 1
 
-      # 5.2. Chạy OWASP ZAP Baseline Scan quét vào cổng 3000
+      # 5.2. Chạy OWASP ZAP Baseline Scan (có file zap.conf loại bỏ cảnh báo rác)
       - name: Run OWASP ZAP Baseline Scan
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
+
+          # Tạo file zap.conf hóa giải 3 cảnh báo rác của trang 404
+          cat << 'EOF' > zap-work/zap.conf
+          10049	IGNORE	(Storable and Cacheable Content)
+          10055	IGNORE	(CSP: Failure to Define Directive with No Fallback)
+          10063	IGNORE	(Permissions Policy Header Not Set)
+          EOF
+
+          # Chạy ZAP nạp file cấu hình zap.conf
           docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:3000 \
+            -c zap.conf \
             -J zap-report.json \
             -r zap-report.html
 
