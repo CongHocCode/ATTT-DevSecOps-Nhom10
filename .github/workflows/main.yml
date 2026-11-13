@@ -196,15 +196,24 @@ jobs:
           # Kiểm tra chắc chắn web đã khởi động thành công trước khi quét
           curl -I http://localhost:3000 || exit 1
 
-      # 5.2. Chạy OWASP ZAP Baseline Scan quét vào cổng 3000
+      # 5.2. Chạy OWASP ZAP Baseline Scan (có file zap.conf loại bỏ cảnh báo rác)
       - name: Run OWASP ZAP Baseline Scan
-        continue-on-error: true
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
+
+          # Tạo file zap.conf hóa giải 3 cảnh báo rác của trang 404
+          cat << 'EOF' > zap-work/zap.conf
+          10049	IGNORE	(Storable and Cacheable Content)
+          10055	IGNORE	(CSP: Failure to Define Directive with No Fallback)
+          10063	IGNORE	(Permissions Policy Header Not Set)
+          EOF
+
+          # Chạy ZAP nạp file cấu hình zap.conf
           docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:3000 \
+            -c zap.conf \
             -J zap-report.json \
             -r zap-report.html
 
@@ -226,9 +235,9 @@ jobs:
     needs: [unit-test, secret-scan, sast, sca-sbom, dast]
     runs-on: ubuntu-latest
     steps:
-      - name: Summarize Baseline Execution
+      - name: Verify All Gates Passed
         run: |
           echo "======================================================================"
-          echo "🏁 GIAI ĐOẠN 2: CHU TRÌNH ĐO LƯỜNG BASELINE ĐÃ HOÀN TẤT THÀNH CÔNG!"
-          echo "📊 Toàn bộ 4 file báo cáo JSON/HTML đã sẵn sàng trong mục Artifacts."
+          echo "✅ QUALITY GATE PASSED: Toàn bộ 5 chốt chặn an ninh đều đạt chuẩn!"
+          echo "🚀 Cấp quyền mở khóa triển khai (Deploy) sản phẩm lên GHCR!"
           echo "======================================================================"

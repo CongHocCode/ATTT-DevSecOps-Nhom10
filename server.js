@@ -1,6 +1,9 @@
 const express = require('express');
+const helmet = require('helmet');
 const sqlite3 = require('sqlite3').verbose();
 const app = express();
+// Bật 14 tiêu đề bảo mật HTTP (Vá lỗi SEC-05: CSP, nosniff, anti-clickjacking)
+app.use(helmet());
 const PORT = process.env.PORT || 3000;
 
 // SEC-01: Secret Leak (Gitleaks) - Đã cập nhật chuỗi chuẩn 39 ký tự để Gitleaks quét dính
