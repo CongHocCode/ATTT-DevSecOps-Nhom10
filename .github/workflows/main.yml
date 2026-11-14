@@ -2,11 +2,11 @@ name: DevSecOps Automated CI/CD Pipeline - UTH Group 10
 
 # ==============================================================================
 # SỰ KIỆN KÍCH HOẠT PIPELINE (TRIGGERS)
-# Chạy tự động mỗi khi có Push lên main, nhánh tính năng, gắn tag, hoặc tạo PR
+# Chạy tự động mỗi khi có Push lên main, nhánh tính năng, nhánh thử nghiệm, gắn tag, hoặc tạo PR
 # ==============================================================================
 on:
   push:
-    branches: [ "main", "feat/*" ]
+    branches: [ "main", "feat/*", "exp/*" ]
     tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
@@ -38,28 +38,29 @@ jobs:
 
   # ============================================================================
   # CHẶNG 2: SECRET SCANNING (PHẦN NHẬT - GITLEAKS)
-  # Mục đích: Bắt lỗi SEC-01 (Lộ Google API Key cứng trong mã nguồn)
+  # Mục đích: Bắt lỗi SEC-01 và kích hoạt Quality Gate (exit-code 1)
   # ============================================================================
   secret-scan:
     name: 2. Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code with Full History
+      - name: Checkout Code (Latest Commit)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Quét toàn bộ lịch sử commit để không bỏ sót secret
+          fetch-depth: 2 # Lấy 2 commit gần nhất để chỉ quét commit mới, tránh dính lịch sử cũ
 
-      - name: Run Gitleaks Scanner
-        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để thu thập log
-        continue-on-error: true
+      - name: Run Gitleaks Scanner (Quality Gate Enabled)
         run: |
           docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect \
             --source="/path" \
+            --log-opts="-n 1" \
+            --exit-code 1 \
+            --redact \
             --report-path="/path/gitleaks-report.json" \
             --report-format="json" \
             --verbose
 
-      # Xuất file báo cáo gitleaks-report.json lên tab Artifacts
+      # Xuất file báo cáo gitleaks-report.json lên tab Artifacts kể cả khi bị chặn
       - name: Upload Gitleaks Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,7 +71,7 @@ jobs:
 
   # ============================================================================
   # CHẶNG 3: SAST SCANNING (PHẦN NHẬT - SEMGREP)
-  # Mục đích: Bắt lỗi SEC-02 (SQL Injection CWE-89) và SEC-03 (Reflected XSS CWE-79)
+  # Mục đích: Bắt lỗi SEC-02 (SQLi), SEC-03 (XSS) và kích hoạt Quality Gate (--error => exit-code 1)
   # ============================================================================
   sast:
     name: 3. SAST Scan (Semgrep)
@@ -79,18 +80,17 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep OSS
-        # Giai đoạn Baseline: Cho phép tiếp tục dù phát hiện lỗi để lấy log JSON
-        continue-on-error: true
+      - name: Run Semgrep OSS (Quality Gate Enabled)
         run: |
           docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan \
             --config=p/default \
             --config=p/owasp-top-ten \
             --config=p/expressjs \
+            --error \
             --json \
             --output=/src/semgrep-report.json
 
-      # Xuất file báo cáo semgrep-report.json lên tab Artifacts
+      # Xuất file báo cáo semgrep-report.json lên tab Artifacts kể cả khi bị chặn
       - name: Upload Semgrep Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -204,9 +204,9 @@ jobs:
 
           # Tạo file zap.conf hóa giải 3 cảnh báo rác của trang 404
           cat << 'EOF' > zap-work/zap.conf
-          10049	IGNORE	(Storable and Cacheable Content)
-          10055	IGNORE	(CSP: Failure to Define Directive with No Fallback)
-          10063	IGNORE	(Permissions Policy Header Not Set)
+          10049 IGNORE  (Storable and Cacheable Content)
+          10055 IGNORE  (CSP: Failure to Define Directive with No Fallback)
+          10063 IGNORE  (Permissions Policy Header Not Set)
           EOF
 
           # Chạy ZAP nạp file cấu hình zap.conf
@@ -228,7 +228,7 @@ jobs:
 
   # ============================================================================
   # CHẶNG 6: TỔNG KẾT & CHỐT CHẶN PHÁT HÀNH (DEPLOY GATE)
-  # Điều kiện: Chờ cả 5 job trên hoàn thành để xác nhận trạng thái Baseline
+  # Điều kiện: Chờ cả 5 job trên hoàn thành để xác nhận trạng thái
   # ============================================================================
   deploy:
     name: 6. Quality Gate & Push to Registry
