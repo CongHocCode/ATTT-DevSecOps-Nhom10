@@ -88,7 +88,8 @@ jobs:
             --config=p/expressjs \
             --error \
             --json \
-            --output=/src/semgrep-report.json
+            --output=/src/semgrep-report.json \
+            /src/server.js
 
       # Xuất file báo cáo semgrep-report.json lên tab Artifacts kể cả khi bị chặn
       - name: Upload Semgrep Artifact

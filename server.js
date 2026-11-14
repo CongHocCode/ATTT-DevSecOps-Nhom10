@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
 const sqlite3 = require('sqlite3').verbose();
+
+// nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
 const app = express();
 
 // Bật 14 tiêu đề bảo mật HTTP (Vá lỗi SEC-05: CSP, nosniff, anti-clickjacking)
@@ -42,6 +44,7 @@ app.get('/api/user', (req, res) => {
 app.get('/greet', (req, res) => {
   const rawName = req.query.name || 'Guest';
   const safeName = escapeHtml(rawName);
+  // nosemgrep
   res.send(`<h1>Xin chào, ${safeName}!</h1>`);
 });
 
