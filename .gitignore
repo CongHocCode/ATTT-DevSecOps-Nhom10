@@ -2,6 +2,8 @@
 # 1. Dependency & Environment (Môi trường & Thư viện)
 # ==========================================
 node_modules/
+.npm-cache/
+.trivy-cache/
 jspm_packages/
 .env
 .env.*

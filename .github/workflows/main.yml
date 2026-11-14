@@ -101,7 +101,7 @@ jobs:
 
   # ============================================================================
   # CHẶNG 4: SCA SCANNING & SBOM (PHẦN THỊNH - TRIVY)
-  # Mục đích: Bắt lỗi SEC-04 (jsonwebtoken CVE mức HIGH) và tạo SBOM CycloneDX
+  # Mục đích: Quét SEC-04 và các dependency; Quality Gate chặn CRITICAL, tạo SBOM CycloneDX
   # ============================================================================
   sca-sbom:
     name: 4. SCA Scan & SBOM (Trivy)
@@ -110,8 +110,17 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
       - name: Build Docker Image
-        run: docker build -t app-devsecops:latest .
+        run: docker build -t app-devsecops:${{ github.sha }} .
 
       - name: Generate CycloneDX SBOM
         run: |
@@ -127,54 +136,100 @@ jobs:
           sha256sum cyclonedx-sbom.json > cyclonedx-sbom.json.sha256
           sha256sum --check cyclonedx-sbom.json.sha256
 
-      - name: Trivy FS Scan
+      - name: Trivy Vulnerability Reports and Critical Quality Gates
+        shell: bash
         run: |
-          docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
+          set +e
+          mkdir -p trivy-reports
+
+          all_start=$(date +%s.%N)
+          fs_start=$(date +%s.%N)
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
             --scanners vuln \
-            --severity HIGH,CRITICAL \
+            --skip-dirs node_modules \
             --exit-code 0 \
             --format json \
-            --output /src/trivy-fs-report.json /src
+            --output /src/trivy-reports/trivy-fs-report.json /src
+          fs_scan_exit=$?
+          if [ "$fs_scan_exit" -eq 0 ]; then
+            docker run --rm -v "$PWD:/src" aquasec/trivy:latest convert \
+              --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+              /src/trivy-reports/trivy-fs-report.json
+            fs_gate_exit=$?
+          else
+            fs_gate_exit=$fs_scan_exit
+          fi
+          fs_end=$(date +%s.%N)
 
-      - name: Verify SEC-04 Baseline Finding
-        run: |
-          python3 - <<'PY'
+          image_start=$(date +%s.%N)
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/src" aquasec/trivy:latest image \
+            --scanners vuln \
+            --exit-code 0 \
+            --format json \
+            --output /src/trivy-reports/trivy-image-report.json \
+            "app-devsecops:${GITHUB_SHA}"
+          image_scan_exit=$?
+          if [ "$image_scan_exit" -eq 0 ]; then
+            docker run --rm -v "$PWD:/src" aquasec/trivy:latest convert \
+              --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+              /src/trivy-reports/trivy-image-report.json
+            image_gate_exit=$?
+          else
+            image_gate_exit=$image_scan_exit
+          fi
+          image_end=$(date +%s.%N)
+          all_end=$(date +%s.%N)
+
+          python3 - "$fs_start" "$fs_end" "$image_start" "$image_end" \
+            "$all_start" "$all_end" "$fs_gate_exit" "$image_gate_exit" <<'PY'
           import json
-          from pathlib import Path
+          import sys
 
-          report = json.loads(Path("trivy-fs-report.json").read_text(encoding="utf-8"))
-          matches = [
-              vuln
-              for result in report.get("Results", [])
-              for vuln in (result.get("Vulnerabilities") or [])
-              if vuln.get("VulnerabilityID") == "CVE-2022-23539"
-          ]
-          if not any(vuln.get("Severity", "").upper() == "HIGH" for vuln in matches):
-              raise SystemExit("SEC-04 baseline failed: CVE-2022-23539 HIGH was not found")
-          print("SEC-04 baseline confirmed: CVE-2022-23539 HIGH")
+          fs_start, fs_end, image_start, image_end, all_start, all_end = map(
+              float, sys.argv[1:7]
+          )
+          fs_exit, image_exit = map(int, sys.argv[7:9])
+          timing = {
+              "trivy_fs_execution_time_sec": round(fs_end - fs_start, 3),
+              "trivy_image_execution_time_sec": round(image_end - image_start, 3),
+              "trivy_pipeline_total_sec": round(all_end - all_start, 3),
+              "trivy_fs_gate_exit_code": fs_exit,
+              "trivy_image_gate_exit_code": image_exit,
+          }
+          with open("trivy-reports/trivy-timing.json", "w", encoding="utf-8") as file:
+              json.dump(timing, file, indent=2)
           PY
 
-      - name: Trivy Image Scan
-        run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/src aquasec/trivy:latest image \
-            --scanners vuln \
-            --severity HIGH,CRITICAL \
-            --exit-code 0 \
-            --format json \
-            --output /src/trivy-image-report.json app-devsecops:latest
+          if [ "$fs_gate_exit" -ne 0 ] || [ "$image_gate_exit" -ne 0 ]; then
+            echo "Trivy Quality Gate FAILED: Critical finding or scan error."
+            exit 1
+          fi
+          echo "Trivy Quality Gate PASSED: 0 Critical findings in filesystem and image."
 
-      - name: Upload SCA & SBOM Artifacts
+      - name: Export Metrics CSV
+        if: always()
+        run: |
+          python3 scripts/gen_csv.py \
+            --fs-report trivy-reports/trivy-fs-report.json \
+            --image-report trivy-reports/trivy-image-report.json \
+            --timing trivy-reports/trivy-timing.json \
+            --output trivy-reports/results_metrics.csv \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --repeat "${GITHUB_RUN_ATTEMPT}" \
+            --scenario Patched \
+            --commit "${GITHUB_SHA}"
+
+      - name: Upload Trivy, SBOM, and Metrics Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sca-and-sbom
+          name: trivy-sca-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             cyclonedx-sbom.json
             cyclonedx-sbom.json.sha256
-            trivy-fs-report.json
-            trivy-image-report.json
-          if-no-files-found: ignore
+            trivy-reports/
+          if-no-files-found: warn
 
   # ============================================================================
   # CHẶNG 5: DAST SCANNING (PHẦN QUYẾT - OWASP ZAP)
