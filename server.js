@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 // ĐÃ VÁ SEC-01: Nạp API Key từ biến môi trường (.env) thay vì hardcode trong mã nguồn
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-
+const REGRESSION_LEAK_KEY = "AIzaSyBvX9Kq3L8mN2P0wR5tY1uZ4vW7xY8z9A0";
 // Hàm mã hóa ký tự đặc biệt HTML (Output Encoding) chống XSS
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
