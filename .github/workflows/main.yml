@@ -230,9 +230,9 @@ jobs:
     needs: [unit-test, secret-scan, sast, sca-sbom, dast]
     runs-on: ubuntu-latest
     steps:
-      - name: Summarize Baseline Execution
+      - name: Verify All Gates Passed
         run: |
           echo "======================================================================"
-          echo "🏁 GIAI ĐOẠN 2: CHU TRÌNH ĐO LƯỜNG BASELINE ĐÃ HOÀN TẤT THÀNH CÔNG!"
-          echo "📊 Toàn bộ 4 file báo cáo JSON/HTML đã sẵn sàng trong mục Artifacts."
+          echo "✅ QUALITY GATE PASSED: Toàn bộ 5 chốt chặn an ninh đều đạt chuẩn!"
+          echo "🚀 Cấp quyền mở khóa triển khai (Deploy) sản phẩm lên GHCR!"
           echo "======================================================================"
