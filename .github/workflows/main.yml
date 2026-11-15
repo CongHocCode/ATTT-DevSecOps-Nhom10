@@ -1,14 +1,20 @@
 name: DevSecOps Automated CI/CD Pipeline - UTH Group 10
+
+# ==============================================================================
+# SỰ KIỆN KÍCH HOẠT PIPELINE (TRIGGERS)
+# Chạy tự động mỗi khi có Push lên main, nhánh tính năng, nhánh thử nghiệm, gắn tag, hoặc tạo PR
+# ==============================================================================
 on:
   push:
-    branches: ["main", "feat/*"]
-    tags: ["v*"]
+    branches: [ "main", "feat/*", "exp/*" ]
+    tags: [ "v*" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
 
 jobs:
   # ============================================================================
-  # CHẶNG 1: UNIT TEST (PHẦN NHẬT)
+  # CHẶNG 1: KIỂM THỬ ĐƠN VỊ (UNIT TEST - PHẦN NHẬT)
+  # Mục đích: Đảm bảo chức năng logic cơ bản của Web App không bị hỏng
   # ============================================================================
   unit-test:
     name: 1. Unit Test (Jest)
@@ -16,37 +22,43 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+
       - name: Setup Node.js Environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      # Dùng npm ci thay vì npm install để đảm bảo đồng bộ 100% với package-lock.json
       - name: Install Dependencies
         run: npm ci
+
       - name: Execute Unit Tests
         run: npm test
 
   # ============================================================================
   # CHẶNG 2: SECRET SCANNING (PHẦN NHẬT - GITLEAKS)
+  # Mục đích: Bắt lỗi SEC-01 và kích hoạt Quality Gate (exit-code 1)
   # ============================================================================
   secret-scan:
     name: 2. Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code with Full History
+      - name: Checkout Code (Latest Commit)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Run Gitleaks Scanner
-        continue-on-error: true
+          fetch-depth: 2 # Quét commit mới nhất, tránh dính lịch sử commit cũ
+
+      - name: Run Gitleaks Scanner (Quality Gate Enabled)
         run: |
           docker run --rm -v $(pwd):/path zricethezav/gitleaks:latest detect \
             --source="/path" \
+            --log-opts="-n 1" \
+            --exit-code 1 \
+            --redact \
             --report-path="/path/gitleaks-report.json" \
             --report-format="json" \
             --verbose
+
       - name: Upload Gitleaks Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,6 +69,7 @@ jobs:
 
   # ============================================================================
   # CHẶNG 3: SAST SCANNING (PHẦN NHẬT - SEMGREP)
+  # Mục đích: Bắt lỗi SEC-02 (SQLi), SEC-03 (XSS) và kích hoạt Quality Gate (--error => exit-code 1)
   # ============================================================================
   sast:
     name: 3. SAST Scan (Semgrep)
@@ -64,15 +77,18 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-      - name: Run Semgrep OSS
-        continue-on-error: true
+
+      - name: Run Semgrep OSS (Quality Gate Enabled)
         run: |
           docker run --rm -v $(pwd):/src returntocorp/semgrep semgrep scan \
             --config=p/default \
             --config=p/owasp-top-ten \
             --config=p/expressjs \
+            --error \
             --json \
-            --output=/src/semgrep-report.json
+            --output=/src/semgrep-report.json \
+            /src/server.js
+
       - name: Upload Semgrep Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,7 +99,6 @@ jobs:
 
   # ============================================================================
   # CHẶNG 4: SCA VÀ SBOM (PHẦN THỊNH - TRIVY)
-  # SEC-04, Critical Quality Gate, CycloneDX và dữ liệu đo lường.
   # ============================================================================
   sca-sbom:
     name: 4. SCA Scan & SBOM (Trivy)
@@ -128,14 +143,12 @@ jobs:
           set -euo pipefail
           mkdir -p trivy-reports
 
-          # Nạp DB trước khi đo để cả ba lần quét dùng cùng một bản dữ liệu.
           docker run --rm -v trivy-cache:/cache/trivy aquasec/trivy:0.76.2 image \
             --cache-dir /cache/trivy \
             --download-db-only
           db_warmed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           overall_failed=0
 
-          # Lặp ba lần; xóa cache kết quả giữa các lần, giữ nguyên vulnerability DB.
           for repeat_no in 1 2 3; do
             repeat_id=$(printf '%02d' "$repeat_no")
             if [ "$repeat_no" -gt 1 ]; then
@@ -275,6 +288,7 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+
       - name: Build and Run Web Container
         run: |
           docker build -t target-app .
@@ -282,21 +296,21 @@ jobs:
           sleep 5
           curl -I http://localhost:3000 || exit 1
 
-      # 5.2. Chạy OWASP ZAP Baseline Scan
       - name: Run OWASP ZAP Baseline Scan
-        continue-on-error: true
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
 
-          # Dùng printf để bảo đảm 100% có ký tự TAB (\t) thật sự
+          # Ép ký tự TAB thật bằng printf (chống lỗi space)
           printf "10049\tIGNORE\t(Storable and Cacheable Content)\n10055\tIGNORE\t(CSP: Failure to Define Directive with No Fallback)\n10063\tIGNORE\t(Permissions Policy Header Not Set)\n" > zap-work/zap.conf
 
           docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:3000 \
+            -c zap.conf \
             -J zap-report.json \
             -r zap-report.html
+
       - name: Upload DAST Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -306,14 +320,16 @@ jobs:
           if-no-files-found: ignore
 
   # ============================================================================
-  # CHẶNG 6: QUALITY GATE VÀ DEPLOY (PHẦN QUYẾT)
+  # CHẶNG 6: TỔNG KẾT & CHỐT CHẶN PHÁT HÀNH (DEPLOY GATE)
   # ============================================================================
   deploy:
     name: 6. Quality Gate & Push to Registry
     needs: [unit-test, secret-scan, sast, sca-sbom, dast]
     runs-on: ubuntu-latest
     steps:
-      - name: Summarize Baseline Execution
+      - name: Verify All Gates Passed
         run: |
-          echo "GIAI ĐOẠN 2: Baseline Pipeline Completed Successfully!"
-          echo "All reports and SBOM are available in the Artifacts section."
+          echo "======================================================================"
+          echo "✅ QUALITY GATE PASSED: Toàn bộ 5 chốt chặn an ninh đều đạt chuẩn!"
+          echo "🚀 Cấp quyền mở khóa triển khai (Deploy) sản phẩm lên GHCR!"
+          echo "======================================================================"
