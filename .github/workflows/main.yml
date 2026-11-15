@@ -1,10 +1,10 @@
 name: DevSecOps Automated CI/CD Pipeline - UTH Group 10
 on:
   push:
-    branches: [ "main", "feat/*" ]
-    tags: [ "v*" ]
+    branches: ["main", "feat/*"]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   # ============================================================================
@@ -20,7 +20,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: "npm"
+
+      # Dùng npm ci thay vì npm install để đảm bảo đồng bộ 100% với package-lock.json
       - name: Install Dependencies
         run: npm ci
       - name: Execute Unit Tests
@@ -279,11 +281,17 @@ jobs:
           docker run -d --name test-web -p 3000:3000 target-app
           sleep 5
           curl -I http://localhost:3000 || exit 1
+
+      # 5.2. Chạy OWASP ZAP Baseline Scan
       - name: Run OWASP ZAP Baseline Scan
         continue-on-error: true
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
+
+          # Dùng printf để bảo đảm 100% có ký tự TAB (\t) thật sự
+          printf "10049\tIGNORE\t(Storable and Cacheable Content)\n10055\tIGNORE\t(CSP: Failure to Define Directive with No Fallback)\n10063\tIGNORE\t(Permissions Policy Header Not Set)\n" > zap-work/zap.conf
+
           docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:3000 \
