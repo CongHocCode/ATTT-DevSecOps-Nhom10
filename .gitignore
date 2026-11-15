@@ -1,45 +1,55 @@
-# ==========================================
-# 1. Dependency & Environment (Môi trường & Thư viện)
-# ==========================================
+# Thư viện và bộ nhớ đệm cục bộ
 node_modules/
+jspm_packages/
 .npm-cache/
 .trivy-cache/
-jspm_packages/
+
+# Tệp môi trường chứa thông tin bí mật
 .env
 .env.*
 !.env.example
 
-# ==========================================
-# 2. Logs & Debugging
-# ==========================================
-logs
+# Nhật ký và tệp tạm
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
-# ==========================================
-# 3. Unit Test Coverage
-# ==========================================
+# Kết quả kiểm thử và biên dịch ở thư mục gốc dự án
 coverage/
 *.lcov
-.nyc_output
+.nyc_output/
+/dist/
+/build/
 
-# ==========================================
-# 4. DevSecOps Artifacts (CHẶN FILE RÁC & FILE NẶNG CỦA TOOL)
-# ==========================================
-sbom.json
-*.sbom.json
+# Báo cáo quét thô được giữ cục bộ và tải lên dưới dạng artifact của Actions.
+# Chỉ giữ CSV tổng hợp ở vị trí workflow xuất ra để có thể đưa vào Git khi cần.
+trivy-reports/*
+!trivy-reports/results_metrics.csv
 trivy-*.json
 semgrep-report.json
 gitleaks-report.json
 zap-work/
 zap-report.*
+sbom.json
+*.sbom.json
+cyclonedx-sbom.json
+cyclonedx-sbom.json.sha256
 
-# ==========================================
-# 5. OS & IDE junk files
-# ==========================================
+# Tệp rác của hệ điều hành
 .DS_Store
 Thumbs.db
-.vscode/
+desktop.ini
+
+# Cấu hình IDE cá nhân; vẫn cho phép chia sẻ danh sách extension trong nhóm.
+.vscode/*
+!.vscode/extensions.json
 .idea/
+
+# Không bỏ qua results_metrics.csv ở thư mục gốc; đây là dữ liệu bàn giao của dự án.

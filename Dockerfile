@@ -19,6 +19,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# NPM chỉ cần ở giai đoạn build; gỡ khỏi image runtime để loại tar lỗi thời đi kèm npm.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # Run tạo User thường (Non-root)
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
