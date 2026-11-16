@@ -1,0 +1,22 @@
+# Không gửi thư viện/caches trên máy chủ vào image Linux; builder tự cài bằng npm ci.
+node_modules/
+.npm-cache/
+.trivy-cache/
+
+# Các tệp này không cần thiết để chạy ứng dụng.
+.git/
+.github/
+docs/
+scripts/
+test/
+trivy-reports/
+coverage/
+results_metrics.csv
+sbom.json
+*.sbom.json
+*.log
+
+# Không đưa thông tin bí mật trên máy cá nhân vào build context.
+.env
+.env.*
+!.env.example

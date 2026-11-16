@@ -23,13 +23,12 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js Environment (v20)
+      - name: Setup Node.js Environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: "npm"
 
-      # Dùng npm ci thay vì npm install để đảm bảo đồng bộ 100% với package-lock.json
       - name: Install Dependencies
         run: npm ci
 
@@ -47,7 +46,7 @@ jobs:
       - name: Checkout Code (Latest Commit)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # Lấy 2 commit gần nhất để chỉ quét commit mới, tránh dính lịch sử cũ
+          fetch-depth: 2 # Quét commit mới nhất, tránh dính lịch sử commit cũ
 
       - name: Run Gitleaks Scanner (Quality Gate Enabled)
         run: |
@@ -60,7 +59,6 @@ jobs:
             --report-format="json" \
             --verbose
 
-      # Xuất file báo cáo gitleaks-report.json lên tab Artifacts kể cả khi bị chặn
       - name: Upload Gitleaks Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -91,7 +89,6 @@ jobs:
             --output=/src/semgrep-report.json \
             /src/server.js
 
-      # Xuất file báo cáo semgrep-report.json lên tab Artifacts kể cả khi bị chặn
       - name: Upload Semgrep Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,8 +98,7 @@ jobs:
           if-no-files-found: ignore
 
   # ============================================================================
-  # CHẶNG 4: SCA SCANNING & SBOM (PHẦN THỊNH - TRIVY)
-  # Mục đích: Bắt lỗi SEC-04 (jsonwebtoken CVE mức HIGH) và tạo SBOM CycloneDX
+  # CHẶNG 4: SCA VÀ SBOM (PHẦN THỊNH - TRIVY)
   # ============================================================================
   sca-sbom:
     name: 4. SCA Scan & SBOM (Trivy)
@@ -111,75 +107,180 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
       - name: Build Docker Image
-        run: docker build -t app-devsecops:latest .
+        run: docker build -t app-devsecops:${{ github.sha }} .
+
+      - name: Create Shared Trivy Cache
+        run: docker volume create trivy-cache
 
       - name: Generate CycloneDX SBOM
         run: |
-          docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
+          docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" aquasec/trivy:0.76.2 fs \
+            --cache-dir /cache/trivy \
             --format cyclonedx \
             --output /src/cyclonedx-sbom.json /src
 
-      - name: Validate CycloneDX SBOM and checksum
+      - name: Validate CycloneDX SBOM and Checksum
         run: |
-          docker run --rm -v "$(pwd):/src" cyclonedx/cyclonedx-cli:latest \
+          docker run --rm -v "$PWD:/src" cyclonedx/cyclonedx-cli:latest \
             cyclonedx validate --input-file /src/cyclonedx-sbom.json \
             --input-format json --input-version v1_7 --fail-on-errors
           sha256sum cyclonedx-sbom.json > cyclonedx-sbom.json.sha256
           sha256sum --check cyclonedx-sbom.json.sha256
 
-      - name: Trivy FS Scan
+      - name: Trivy Reports and Critical Quality Gate (3 Repeats)
+        shell: bash
         run: |
-          docker run --rm -v $(pwd):/src aquasec/trivy:latest fs \
-            --scanners vuln \
-            --severity HIGH,CRITICAL \
-            --exit-code 0 \
-            --format json \
-            --output /src/trivy-fs-report.json /src
+          set -euo pipefail
+          mkdir -p trivy-reports
 
-      - name: Verify SEC-04 Baseline Finding
-        run: |
-          python3 - <<'PY'
+          docker run --rm -v trivy-cache:/cache/trivy aquasec/trivy:0.76.2 image \
+            --cache-dir /cache/trivy \
+            --download-db-only
+          db_warmed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          overall_failed=0
+
+          for repeat_no in 1 2 3; do
+            repeat_id=$(printf '%02d' "$repeat_no")
+            if [ "$repeat_no" -gt 1 ]; then
+              docker run --rm -v trivy-cache:/cache/trivy aquasec/trivy:0.76.2 clean \
+                --cache-dir /cache/trivy --scan-cache
+            fi
+
+            fs_start=$(date +%s.%N)
+            if docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" \
+              aquasec/trivy:0.76.2 fs \
+              --cache-dir /cache/trivy \
+              --skip-db-update \
+              --scanners vuln \
+              --skip-dirs node_modules \
+              --exit-code 0 \
+              --format json \
+              --output "/src/trivy-reports/trivy-fs-report-${repeat_id}.json" \
+              /src; then
+              fs_scan_exit=0
+            else
+              fs_scan_exit=$?
+            fi
+
+            if [ "$fs_scan_exit" -eq 0 ]; then
+              if docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" \
+                aquasec/trivy:0.76.2 convert \
+                --cache-dir /cache/trivy \
+                --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+                "/src/trivy-reports/trivy-fs-report-${repeat_id}.json"; then
+                fs_gate_exit=0
+              else
+                fs_gate_exit=$?
+              fi
+            else
+              fs_gate_exit=$fs_scan_exit
+            fi
+            fs_end=$(date +%s.%N)
+
+            image_start=$(date +%s.%N)
+            if docker run --rm -v trivy-cache:/cache/trivy \
+              -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src" \
+              aquasec/trivy:0.76.2 image \
+              --cache-dir /cache/trivy \
+              --skip-db-update \
+              --scanners vuln \
+              --exit-code 0 \
+              --format json \
+              --output "/src/trivy-reports/trivy-image-report-${repeat_id}.json" \
+              "app-devsecops:${GITHUB_SHA}"; then
+              image_scan_exit=0
+            else
+              image_scan_exit=$?
+            fi
+
+            if [ "$image_scan_exit" -eq 0 ]; then
+              if docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" \
+                aquasec/trivy:0.76.2 convert \
+                --cache-dir /cache/trivy \
+                --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+                "/src/trivy-reports/trivy-image-report-${repeat_id}.json"; then
+                image_gate_exit=0
+              else
+                image_gate_exit=$?
+              fi
+            else
+              image_gate_exit=$image_scan_exit
+            fi
+            image_end=$(date +%s.%N)
+
+            python3 - "$repeat_no" "$fs_start" "$fs_end" "$image_start" \
+              "$image_end" "$fs_gate_exit" "$image_gate_exit" "$db_warmed_at" <<'PY'
           import json
-          from pathlib import Path
+          import sys
 
-          report = json.loads(Path("trivy-fs-report.json").read_text(encoding="utf-8"))
-          matches = [
-              vuln
-              for result in report.get("Results", [])
-              for vuln in (result.get("Vulnerabilities") or [])
-              if vuln.get("VulnerabilityID") == "CVE-2022-23539"
-          ]
-          if not any(vuln.get("Severity", "").upper() == "HIGH" for vuln in matches):
-              raise SystemExit("SEC-04 baseline failed: CVE-2022-23539 HIGH was not found")
-          print("SEC-04 baseline confirmed: CVE-2022-23539 HIGH")
+          repeat_no = int(sys.argv[1])
+          fs_start, fs_end, image_start, image_end = map(float, sys.argv[2:6])
+          fs_exit, image_exit = map(int, sys.argv[6:8])
+          timing = {
+              "trivy_fs_execution_time_sec": round(fs_end - fs_start, 3),
+              "trivy_image_execution_time_sec": round(image_end - image_start, 3),
+              "trivy_pipeline_total_sec": round(image_end - fs_start, 3),
+              "trivy_fs_gate_exit_code": fs_exit,
+              "trivy_image_gate_exit_code": image_exit,
+              "repeat_no": repeat_no,
+              "trivy_version": "0.76.2",
+              "vulnerability_db_warmed_at_utc": sys.argv[8],
+          }
+          with open(
+              f"trivy-reports/trivy-timing-{repeat_no:02d}.json",
+              "w",
+              encoding="utf-8",
+          ) as file:
+              json.dump(timing, file, indent=2)
           PY
 
-      - name: Trivy Image Scan
-        run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/src aquasec/trivy:latest image \
-            --scanners vuln \
-            --severity HIGH,CRITICAL \
-            --exit-code 0 \
-            --format json \
-            --output /src/trivy-image-report.json app-devsecops:latest
+            if [ "$fs_gate_exit" -ne 0 ] || [ "$image_gate_exit" -ne 0 ]; then
+              overall_failed=1
+              echo "Lần ${repeat_no}: Trivy Critical gate thất bại."
+            else
+              echo "Lần ${repeat_no}: Trivy Critical gate đạt."
+            fi
+          done
 
-      - name: Upload SCA & SBOM Artifacts
+          if [ "$overall_failed" -ne 0 ]; then
+            echo "Trivy Critical gate thất bại ở ít nhất một lần quét."
+            exit 1
+          fi
+          echo "Trivy Critical gate đạt trong cả ba lần quét."
+
+      - name: Export Metrics CSV
+        if: always()
+        run: |
+          python3 scripts/gen_csv.py \
+            --reports-dir trivy-reports \
+            --output trivy-reports/results_metrics.csv \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --scenario Patched \
+            --commit "${GITHUB_SHA}"
+
+      - name: Upload SCA, SBOM, and Metrics Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sca-and-sbom
+          name: trivy-sca-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             cyclonedx-sbom.json
             cyclonedx-sbom.json.sha256
-            trivy-fs-report.json
-            trivy-image-report.json
-          if-no-files-found: ignore
+            trivy-reports/
+          if-no-files-found: warn
 
   # ============================================================================
   # CHẶNG 5: DAST SCANNING (PHẦN QUYẾT - OWASP ZAP)
-  # Mục đích: Bắt lỗi SEC-05 (Thiếu Security Headers: CSP và nosniff)
   # ============================================================================
   dast:
     name: 5. DAST Scan (OWASP ZAP)
@@ -188,32 +289,28 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # 5.1. Build và chạy Web App ngầm trên runner để ZAP có mục tiêu quét
       - name: Build and Run Web Container
         run: |
           docker build -t target-app .
           docker run -d --name test-web -p 3000:3000 target-app
           sleep 5
-          # Kiểm tra chắc chắn web đã khởi động thành công trước khi quét
           curl -I http://localhost:3000 || exit 1
 
-      # 5.2. Chạy OWASP ZAP Baseline Scan (có file zap.conf loại bỏ cảnh báo rác)
       - name: Run OWASP ZAP Baseline Scan
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
 
+          # Ép ký tự TAB thật bằng printf (chống lỗi space)
           printf "10049\tIGNORE\t(Storable and Cacheable Content)\n10055\tIGNORE\t(CSP: Failure to Define Directive with No Fallback)\n10063\tIGNORE\t(Permissions Policy Header Not Set)\n" > zap-work/zap.conf
 
           docker run --rm --net="host" -v $(pwd)/zap-work:/zap/wrk/:rw \
             zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:3000 \
             -c zap.conf \
-            -I \
             -J zap-report.json \
             -r zap-report.html
 
-      # Xuất báo cáo HTML và JSON của ZAP lên tab Artifacts
       - name: Upload DAST Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -224,7 +321,6 @@ jobs:
 
   # ============================================================================
   # CHẶNG 6: TỔNG KẾT & CHỐT CHẶN PHÁT HÀNH (DEPLOY GATE)
-  # Điều kiện: Chờ cả 5 job trên hoàn thành để xác nhận trạng thái
   # ============================================================================
   deploy:
     name: 6. Quality Gate & Push to Registry
