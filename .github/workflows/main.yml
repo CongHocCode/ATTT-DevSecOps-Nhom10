@@ -6,10 +6,10 @@ name: DevSecOps Automated CI/CD Pipeline - UTH Group 10
 # ==============================================================================
 on:
   push:
-    branches: [ "main", "feat/*", "exp/*" ]
-    tags: [ "v*" ]
+    branches: ["main", "feat/*", "exp/*"]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   # ============================================================================
@@ -137,7 +137,7 @@ jobs:
           sha256sum cyclonedx-sbom.json > cyclonedx-sbom.json.sha256
           sha256sum --check cyclonedx-sbom.json.sha256
 
-      - name: Trivy Reports and Critical Quality Gate (3 Repeats)
+      - name: Trivy Reports and HIGH/CRITICAL Quality Gate (3 Repeats)
         shell: bash
         run: |
           set -euo pipefail
@@ -176,7 +176,7 @@ jobs:
               if docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" \
                 aquasec/trivy:0.76.2 convert \
                 --cache-dir /cache/trivy \
-                --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+                --scanners vuln --format table --severity HIGH,CRITICAL --exit-code 1 \
                 "/src/trivy-reports/trivy-fs-report-${repeat_id}.json"; then
                 fs_gate_exit=0
               else
@@ -207,7 +207,7 @@ jobs:
               if docker run --rm -v trivy-cache:/cache/trivy -v "$PWD:/src" \
                 aquasec/trivy:0.76.2 convert \
                 --cache-dir /cache/trivy \
-                --scanners vuln --format table --severity CRITICAL --exit-code 1 \
+                --scanners vuln --format table --severity HIGH,CRITICAL --exit-code 1 \
                 "/src/trivy-reports/trivy-image-report-${repeat_id}.json"; then
                 image_gate_exit=0
               else
@@ -246,17 +246,17 @@ jobs:
 
             if [ "$fs_gate_exit" -ne 0 ] || [ "$image_gate_exit" -ne 0 ]; then
               overall_failed=1
-              echo "Lần ${repeat_no}: Trivy Critical gate thất bại."
+              echo "Lần ${repeat_no}: Trivy HIGH/CRITICAL gate thất bại."
             else
-              echo "Lần ${repeat_no}: Trivy Critical gate đạt."
+              echo "Lần ${repeat_no}: Trivy HIGH/CRITICAL gate đạt."
             fi
           done
 
           if [ "$overall_failed" -ne 0 ]; then
-            echo "Trivy Critical gate thất bại ở ít nhất một lần quét."
+            echo "Trivy HIGH/CRITICAL gate thất bại ở ít nhất một lần quét."
             exit 1
           fi
-          echo "Trivy Critical gate đạt trong cả ba lần quét."
+          echo "Trivy HIGH/CRITICAL gate đạt trong cả ba lần quét."
 
       - name: Export Metrics CSV
         if: always()
