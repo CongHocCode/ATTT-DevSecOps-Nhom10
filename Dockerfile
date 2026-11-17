@@ -1,6 +1,10 @@
+
 # Build native production dependencies in a disposable stage.
 FROM node:20-alpine AS dependencies
 WORKDIR /app
+
+# Update Alpine OS packages to receive security fixes.
+RUN apk upgrade --no-cache
 
 RUN apk add --no-cache python3 make g++
 COPY package*.json ./
@@ -10,6 +14,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Update Alpine OS packages to receive security fixes.
+RUN apk upgrade --no-cache
 
 # NPM chỉ cần ở giai đoạn build; gỡ khỏi image runtime để loại tar lỗi thời đi kèm npm.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
