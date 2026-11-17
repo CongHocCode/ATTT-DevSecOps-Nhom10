@@ -1,7 +1,7 @@
-Run_ID,Repeat_No,Commit_Hash,Test_Scenario,Scanner_Name,Execution_Time_Sec,Pipeline_Total_Sec,Raw_Findings,True_Positives,False_Positives,Missed_Findings,Max_Severity,Quality_Gate_Status,Notes
-1,1,v0-buggy,Baseline,Trivy (FS),15,120,0,0,0,0,UNKNOWN,PASSED,Quét tệp phụ thuộc package.json
-1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
-1,1,v0-buggy,Baseline,Trivy (FS),15,120,0,0,0,0,UNKNOWN,PASSED,Quét tệp phụ thuộc package.json
-1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
-1,1,v0-buggy,Baseline,Trivy (FS),15,120,3,3,0,0,HIGH,FAILED,Quét tệp phụ thuộc package.json
-1,1,v0-buggy,Baseline,Trivy (Image),30,120,0,0,0,0,UNKNOWN,PASSED,Quét Docker Image
+﻿Run_ID,Repeat_No,Commit_Hash,Test_Scenario,Scanner_Name,Scanner_Version,Vulnerability_DB_Warmed_At_UTC,Execution_Time_Sec,Pipeline_Total_Sec,Raw_Findings,Critical_Findings,True_Positives,False_Positives,Missed_Findings,Max_Severity,Quality_Gate_Status,Notes
+44047540944-1,1,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (FS),0.76.2,2026-11-17T08:32:47Z,0.698,2.446,0,0,,,,UNKNOWN,PASSED,"Filesystem vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
+44047540944-1,1,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (Image),0.76.2,2026-11-17T08:32:47Z,1.745,2.446,0,0,,,,UNKNOWN,PASSED,"Docker image vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
+44047540944-1,2,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (FS),0.76.2,2026-11-17T08:32:47Z,0.645,2.451,0,0,,,,UNKNOWN,PASSED,"Filesystem vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
+44047540944-1,2,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (Image),0.76.2,2026-11-17T08:32:47Z,1.802,2.451,0,0,,,,UNKNOWN,PASSED,"Docker image vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
+44047540944-1,3,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (FS),0.76.2,2026-11-17T08:32:47Z,0.728,2.611,0,0,,,,UNKNOWN,PASSED,"Filesystem vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
+44047540944-1,3,e9610f2a1bc304e79d9e9b891c05667f2f11665b,Patched,Trivy (Image),0.76.2,2026-11-17T08:32:47Z,1.880,2.611,0,0,,,,UNKNOWN,PASSED,"Docker image vulnerability scan; Raw_Findings gồm mọi severity. Pipeline_Total_Sec là tổng chu kỳ Trivy FS+Image, không gồm build/deploy."
